@@ -73,6 +73,25 @@ Recommended sequence on the physical robot:
 the real hydrophone. `Tank max depth` is the known tank depth used by the
 controller's vertical search safety logic.
 
+### Real-vehicle contract checked by Preflight
+
+The live preflight validates the physical stack contract, not only topic
+names:
+
+| Signal | Required contract |
+| --- | --- |
+| Odometry | `/odometry/filtered`, `nav_msgs/msg/Odometry`, `odom -> base_link` |
+| Depth | `/depth/pose`, `geometry_msgs/msg/PoseWithCovarianceStamped`, frame `odom`, underwater `z < 0` |
+| Vehicle | `/mavros/state`, `mavros_msgs/msg/State`, connected and armed |
+| Services | `/mavros/cmd/arming` and `/mavros/set_mode` available |
+| Audio | `/audio`, `audio_common_msgs/msg/AudioData`, or bundled capture enabled |
+| RC output | no publisher before homing; the homing RC mux becomes the sole `/mavros/rc/override` publisher |
+
+The latest `hit25_auv_ros2/localization_test.launch.py` supplies these topic,
+frame, depth-sign, and joystick-mux contracts when the GUI starts the robot
+stack. A failed row identifies the exact real-vehicle integration mismatch and,
+for RC conflicts, the publisher node names.
+
 ## Python Dependencies
 
 This package uses FastAPI and Uvicorn for the web server.

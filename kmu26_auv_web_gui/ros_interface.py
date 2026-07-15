@@ -157,6 +157,10 @@ class LocalizationRosNode(Node):
         self._pose = {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}
         self._velocity = {"x": 0.0, "y": 0.0, "z": 0.0}
         self._depth = {"z": 0.0}
+        self._frames = {
+            "odom": {"frame_id": "", "child_frame_id": ""},
+            "depth": {"frame_id": ""},
+        }
         self._attitude = {
             "roll_deg": None,
             "pitch_deg": None,
@@ -304,13 +308,28 @@ class LocalizationRosNode(Node):
         )
 
     def snapshot(self) -> dict:
+        topic_names_and_types = dict(self.get_topic_names_and_types())
+        rc_output_publishers = self.get_publishers_info_by_topic(
+            self._topic_config.rc_output
+        )
+        audio_publishers = self.get_publishers_info_by_topic(self._topic_config.audio)
         graph = {
-            "rc_output_publishers": len(
-                self.get_publishers_info_by_topic(self._topic_config.rc_output)
-            ),
-            "audio_publishers": len(
-                self.get_publishers_info_by_topic(self._topic_config.audio)
-            ),
+            "rc_output_publishers": len(rc_output_publishers),
+            "rc_output_publisher_nodes": _endpoint_nodes(rc_output_publishers),
+            "audio_publishers": len(audio_publishers),
+            "audio_publisher_nodes": _endpoint_nodes(audio_publishers),
+            "topic_types": {
+                "odom": list(topic_names_and_types.get(self._topic_config.odom, [])),
+                "depth": list(topic_names_and_types.get(self._topic_config.depth, [])),
+                "mavros_state": list(
+                    topic_names_and_types.get(self._topic_config.mavros_state, [])
+                ),
+                "audio": list(topic_names_and_types.get(self._topic_config.audio, [])),
+            },
+            "services": {
+                "arming": self._arm_client.service_is_ready(),
+                "set_mode": self._set_mode_client.service_is_ready(),
+            },
         }
         with self._lock:
             return {
@@ -332,6 +351,10 @@ class LocalizationRosNode(Node):
                 "pose": dict(self._pose),
                 "velocity": dict(self._velocity),
                 "depth": dict(self._depth),
+                "frames": {
+                    "odom": dict(self._frames["odom"]),
+                    "depth": dict(self._frames["depth"]),
+                },
                 "attitude": dict(self._attitude),
                 "dvl_quality": dict(self._dvl_quality),
                 "precheck": self._precheck_snapshot_locked(),
@@ -578,6 +601,10 @@ class LocalizationRosNode(Node):
                 "z": pose.position.z,
                 "yaw": yaw,
             }
+            self._frames["odom"] = {
+                "frame_id": msg.header.frame_id,
+                "child_frame_id": msg.child_frame_id,
+            }
             self._append_path_point(pose.position.x, pose.position.y)
 
     def _append_path_point(self, x: float, y: float) -> None:
@@ -708,6 +735,7 @@ class LocalizationRosNode(Node):
         with self._lock:
             self._health["depth"].tick()
             self._depth = {"z": msg.pose.pose.position.z}
+            self._frames["depth"] = {"frame_id": msg.header.frame_id}
 
     def _on_battery(self, msg: BatteryState) -> None:
         with self._lock:
@@ -1192,3 +1220,14 @@ def _integer_or_zero(value: object) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _endpoint_nodes(endpoints: list) -> list[dict[str, str]]:
+    return [
+        {
+            "name": str(endpoint.node_name),
+            "namespace": str(endpoint.node_namespace),
+            "type": str(endpoint.topic_type),
+        }
+        for endpoint in endpoints
+    ]
